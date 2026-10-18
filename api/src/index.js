@@ -71,6 +71,34 @@ export default {
         return reply({station:r[0]},201);
       } catch {return reply({error:'Database operation failed'},503);}
     }
+    // Piloto controlado: token de operador diferente del token administrativo.
+    // Solo registrar en DWG de prueba, no distribuir este secreto ni almacenar en LISP.
+    if (path === '/pilot/equipment/register') {
+      if (method !== 'POST') return reply({error:'Method not allowed'},405);
+      const pilotToken=request.headers.get('X-SGCAD-Operator-Token');
+      if (!env.SGCAD_OPERATOR_TOKEN || !safeEquals(pilotToken,env.SGCAD_OPERATOR_TOKEN)) return reply({error:'Unauthorized'},401);
+      if (!env.DATABASE_URL) return reply({error:'Database not configured'},503);
+      let b;
+      try { b=await parseJson(request); } catch {return reply({error:'JSON invalido'},400);}
+      const project=typeof b.project==='string'?b.project.trim().toUpperCase():'';
+      const station=typeof b.station==='string'?b.station.trim().toUpperCase():'';
+      const tipo=typeof b.tipo==='string'?b.tipo.trim().toUpperCase():'';
+      const tag=typeof b.tag==='string'?b.tag.trim().toUpperCase():'';
+      const dwg=typeof b.dwg==='string'?b.dwg.trim():'';
+      const handle=typeof b.handle==='string'?b.handle.trim().toUpperCase():'';
+      const sgid=typeof b.sgid==='string'?b.sgid.trim():'';
+      if (!validCode(project) || !validCode(station) || !/^[A-Z]{1,10}$/.test(tipo) ||
+          !/^[A-Z]{1,10}\/[0-9]{1,9}[A-Z]{0,5}$/.test(tag) || !tag.startsWith(tipo+'/') ||
+          !dwg || dwg.length>255 || !/^[A-F0-9]{1,32}$/.test(handle) || sgid.length>255) {
+        return reply({error:'Datos de sensor invalidos'},400);
+      }
+      try {
+        const sql=neon(env.DATABASE_URL);
+        const rows=await sql`SELECT sgcad.registrar_sensor_v1(${project},${station},${tag},${tipo},${dwg},${handle},${sgid}) AS resultado`;
+        const result=rows[0].resultado;
+        return reply(result,result.ok?(result.created?201:200):409);
+      } catch {return reply({error:'Database operation failed'},503);}
+    }
     return reply({error:'Ruta no encontrada'},404);
   }
 };
